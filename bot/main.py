@@ -39,8 +39,11 @@
 
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
+from typing import Optional
+from aiohttp import web
 
 # Добавляем корневую директорию проекта в sys.path для корректного импорта модулей
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -75,14 +78,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bot")
 
+# Хранилище раннера веб-сервера для Render
+render_web_runner: Optional[web.AppRunner] = None
+
+
+async def start_render_health_server() -> Optional[web.AppRunner]:
+    """
+    Запуск легковесного HTTP-сервера для успешного прохождения
+    проверки работоспособности (Health Check) сервиса на Render.
+    """
+    port_str = os.getenv("PORT")
+    if not port_str:
+        return None
+
+    try:
+        port = int(port_str)
+    except ValueError:
+        return None
+
+    async def handle_ping(request: web.Request) -> web.Response:
+        return web.Response(
+            text="TiramiAutoBot is running and healthy!",
+            content_type="text/plain"
+        )
+
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    app.router.add_get("/health", handle_ping)
+    app.router.add_get("/ping", handle_ping)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Render Health Check сервер успешно запущен на порту {port}")
+    return runner
+
 
 async def on_startup(bot: Bot) -> None:
     """Действия при запуске бота."""
+    global render_web_runner
+
     logger.info("Инициализация базы данных SQLite...")
     await db.init_db()
     
     logger.info("Запуск планировщика задач APScheduler...")
     mailing_srv.start_scheduler()
+
+    # Если бот развернут как Web Service на Render (передан PORT)
+    render_web_runner = await start_render_health_server()
     
     bot_user = await bot.get_me()
     logger.info(f"Бот @{bot_user.username} успешно запущен и готов к работе!")
@@ -90,10 +134,16 @@ async def on_startup(bot: Bot) -> None:
 
 async def on_shutdown() -> None:
     """Действия при корректном завершении работы бота."""
+    global render_web_runner
+
     logger.info("Завершение работы... Отключение всех сессий Telethon...")
     await telethon_mgr.disconnect_all()
     if mailing_srv.scheduler.running:
         mailing_srv.scheduler.shutdown(wait=False)
+
+    if render_web_runner:
+        await render_web_runner.cleanup()
+
     logger.info("Все соединения закрыты. Бот остановлен.")
 
 

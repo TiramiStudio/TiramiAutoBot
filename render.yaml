@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: tiramiautobot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.main
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: DEFAULT_API_ID
+        sync: false
+      - key: DEFAULT_API_HASH
+        sync: false
+      - key: DATABASE_PATH
+        value: data/bot.db
+      - key: SESSIONS_DIR
+        value: sessions
+      - key: MEDIA_DIR
+        value: media
