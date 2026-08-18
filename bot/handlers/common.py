@@ -44,8 +44,9 @@ async def cb_about_menu(callback: CallbackQuery) -> None:
         "👑 <b>Разработчик:</b> студия <b>TiramiStudio</b>\n\n"
         "🔗 <b>Наши официальные сообщества и ресурсы:</b>\n"
         "• 📢 <b>Telegram-канал:</b> <a href='https://t.me/tiramistudio'>t.me/tiramistudio</a>\n"
-        "• 💬 <b>Discord-сообщество:</b> <a href='https://discord.gg/BcQEwxhT45'>discord.gg/BcQEwxhT45</a>\n\n"
-        "Подписывайтесь, чтобы первыми получать обновления, новости и техническую поддержку!"
+        "• 💬 <b>Discord-сообщество:</b> <a href='https://discord.gg/BcQEwxhT45'>discord.gg/BcQEwxhT45</a>\n"
+        "• 🐙 <b>GitHub-репозиторий:</b> <a href='https://github.com/TiramiStudio/TiramiAutoBot'>github.com/TiramiStudio/TiramiAutoBot</a>\n\n"
+        "Подписывайтесь, ставьте ⭐ на GitHub и следите за обновлениями!"
     )
     await callback.message.edit_text(text, parse_mode="html", reply_markup=about_kb(), disable_web_page_preview=True)
     await callback.answer()

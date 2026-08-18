@@ -37,6 +37,9 @@ def about_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📢 Telegram-канал", url="https://t.me/tiramistudio"),
         InlineKeyboardButton(text="💬 Discord-сервер", url="https://discord.gg/BcQEwxhT45")
     )
+    builder.row(
+        InlineKeyboardButton(text="🐙 GitHub-репозиторий", url="https://github.com/TiramiStudio/TiramiAutoBot")
+    )
     builder.row(InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu:main"))
     return builder.as_markup()
 
