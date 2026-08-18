@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables & secrets
+.env
+*.env
+
+# Telethon sessions
+sessions/*.session
+sessions/*.session-journal
+*.session
+
+# Database
+data/*.db
+data/*.sqlite3
+*.db
+*.sqlite3
+
+# Uploaded media
+media/*
+!media/.gitkeep
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
