@@ -4,6 +4,7 @@
 """
 
 import os
+import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -93,8 +94,11 @@ async def msg_account_enter_phone(message: Message, state: FSMContext) -> None:
 
     await wait_msg.edit_text(
         f"📩 <b>Код подтверждения отправлен на номер <code>{phone}</code>!</b>\n\n"
-        "Пожалуйста, проверьте служебное сообщение в Telegram и отправьте код сюда.\n"
-        "<i>(Если код содержит пробелы или дефисы, можете отправлять как есть)</i>",
+        "⚠️ <b>ОБЯЗАТЕЛЬНО К ПРОЧТЕНИЮ (Защита Telegram):</b>\n"
+        "Telegram <b>автоматически блокирует код</b>, если отправить его сплошными цифрами!\n\n"
+        "👉 <b>Отправьте код С ПРОБЕЛАМИ или ДЕФИСАМИ</b> между каждой цифрой:\n"
+        "Например, если вам пришел код <code>54321</code>, отправьте в чат:\n"
+        "<code>5 4 3 2 1</code>  или  <code>5-4-3-2-1</code>",
         parse_mode="html",
         reply_markup=custom_back_kb("menu:accounts", "❌ Отмена")
     )
@@ -104,14 +108,19 @@ async def msg_account_enter_phone(message: Message, state: FSMContext) -> None:
 async def msg_account_enter_code(message: Message, state: FSMContext) -> None:
     """Обработка ввода кода подтверждения."""
     code_raw = message.text or ""
-    # Очищаем код от пробелов
-    code = code_raw.strip().replace(" ", "").replace("-", "")
+    # Извлекаем только цифры из любого введенного формата
+    code = re.sub(r"\D", "", code_raw)
 
     data = await state.get_data()
     phone = data.get("phone", "")
 
-    if not code:
-        await message.answer("❌ Код не может быть пустым. Введите код:")
+    if not code or len(code) < 5:
+        await message.answer(
+            "❌ <b>Некорректный код!</b>\n"
+            "Пожалуйста, отправьте 5 цифр через пробел (например: <code>1 2 3 4 5</code>):",
+            parse_mode="html",
+            reply_markup=custom_back_kb("menu:accounts", "❌ Отмена")
+        )
         return
 
     wait_msg = await message.answer("⏳ <i>Проверяем код подтверждения...</i>", parse_mode="html")
@@ -119,7 +128,8 @@ async def msg_account_enter_code(message: Message, state: FSMContext) -> None:
 
     if not result.get("success"):
         await wait_msg.edit_text(
-            f"❌ <b>Ошибка:</b> {result.get('error')}\n\nПопробуйте ввести код еще раз:",
+            f"❌ <b>Ошибка:</b> {result.get('error')}\n\n"
+            "⚠️ <i>Не забудьте отправить код через пробел (например: <code>1 2 3 4 5</code>)</i>:",
             parse_mode="html",
             reply_markup=custom_back_kb("menu:accounts", "❌ Отмена")
         )

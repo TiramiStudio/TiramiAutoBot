@@ -40,7 +40,16 @@ class TelethonManager:
         api_hash = account.api_hash or DEFAULT_API_HASH
         session_path = self.get_session_path(account.session_name)
 
-        client = TelegramClient(session_path, api_id, api_hash)
+        client = TelegramClient(
+            session_path,
+            api_id,
+            api_hash,
+            device_model="Desktop",
+            system_version="Windows 11",
+            app_version="5.4.1 x64",
+            lang_code="ru",
+            system_lang_code="ru"
+        )
         await client.connect()
         self.clients[phone] = client
         return client
@@ -73,7 +82,16 @@ class TelethonManager:
         session_name = f"acc_{phone.replace('+', '').replace(' ', '')}"
         session_path = self.get_session_path(session_name)
 
-        client = TelegramClient(session_path, api_id, api_hash)
+        client = TelegramClient(
+            session_path,
+            api_id,
+            api_hash,
+            device_model="Desktop",
+            system_version="Windows 11",
+            app_version="5.4.1 x64",
+            lang_code="ru",
+            system_lang_code="ru"
+        )
         await client.connect()
 
         try:
