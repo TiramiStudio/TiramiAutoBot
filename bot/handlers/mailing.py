@@ -33,7 +33,12 @@ active_monitor_msg: dict[str, int] = {}
 
 def build_status_text(progress: dict) -> str:
     """Форматирует текст активного мониторинга рассылки."""
-    state_icon = "⏸ <b>НА ПАУЗЕ</b>" if progress["is_paused"] else ("🚀 <b>В ПРОЦЕССЕ</b>" if progress["is_running"] else "🏁 <b>ЗАВЕРШЕНА</b>")
+    if progress["is_paused"]:
+        state_icon = "⏸ <b>НА ПАУЗЕ</b>"
+    elif progress["is_running"]:
+        state_icon = "🚀 <b>В ПРОЦЕССЕ</b>"
+    else:
+        state_icon = "⏹ <b>ОСТАНОВЛЕНА / ЗАВЕРШЕНА</b>"
 
     return (
         f"📊 <b>Панель управления рассылкой</b>\n\n"
@@ -44,7 +49,7 @@ def build_status_text(progress: dict) -> str:
         f"✅ Успешно отправлено: <b>{progress['sent']}</b>\n"
         f"⚠️ Ошибок / Ограничений: <b>{progress['errors']}</b>\n"
         f"📱 Текущий аккаунт: <code>{progress['current_account']}</code>\n"
-        f"🎯 Текущая цель: <code>{progress['current_target']}</code>\n"
+        f"🎯 Статус цели: <b>{progress['current_target']}</b>\n"
         f"⏱ Прошло времени: <b>{progress['elapsed_time']}</b>"
     )
 
@@ -318,8 +323,7 @@ async def cb_mail_resume(callback: CallbackQuery, bot: Bot) -> None:
 async def cb_mail_stop(callback: CallbackQuery, bot: Bot) -> None:
     """Остановка рассылки."""
     mailing_srv.stop()
-    await callback.answer("Остановка рассылки...")
-    await asyncio.sleep(0.5)
+    await callback.answer("Рассылка мгновенно остановлена!", show_alert=True)
     await update_monitor_ui(bot)
 
 

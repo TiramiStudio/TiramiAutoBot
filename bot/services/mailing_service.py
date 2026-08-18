@@ -1,6 +1,6 @@
 """
 Сервис рассылки сообщений с поддержкой ротации аккаунтов, антибана,
-динамического обновления прогресса, паузы/остановки и планировщика задач.
+динамического обновления прогресса, мгновенной остановки/паузы и планировщика задач.
 """
 
 import asyncio
@@ -32,6 +32,7 @@ class MailingService:
         self._stop_requested: bool = False
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # по умолчанию не на паузе
+        self._stop_event = asyncio.Event()
 
         self.current_mailing_id: Optional[str] = None
         self.total_targets: int = 0
@@ -76,8 +77,8 @@ class MailingService:
         if not self.ui_update_callback:
             return
         now = asyncio.get_event_loop().time()
-        # Обновляем не чаще чем раз в 3 секунды, если не форсировано
-        if force or (now - self._last_ui_update >= 3.0):
+        # Обновляем не чаще чем раз в 2 секунды, если не форсировано
+        if force or (now - self._last_ui_update >= 2.0):
             self._last_ui_update = now
             try:
                 await self.ui_update_callback()
@@ -97,11 +98,26 @@ class MailingService:
             self._pause_event.set()
 
     def stop(self) -> None:
-        """Останавливает активную рассылку."""
-        if self.is_running:
-            self._stop_requested = True
-            self.is_paused = False
-            self._pause_event.set()
+        """Мгновенно останавливает активную рассылку и прерывает любые паузы."""
+        self._stop_requested = True
+        self.is_running = False
+        self.is_paused = False
+        self._stop_event.set()
+        self._pause_event.set()
+        self.current_target = "⏹ Остановлено пользователем"
+
+    async def _interruptible_sleep(self, seconds: float) -> bool:
+        """
+        Спит указанное количество секунд, но мгновенно просыпается при вызове stop().
+        Возвращает True если пауза завершилась штатно, False если была прервана остановкой.
+        """
+        if self._stop_requested:
+            return False
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+            return False  # Сработал сигнал остановки
+        except asyncio.TimeoutError:
+            return True  # Таймаут прошел успешно
 
     async def run_mailing(
         self,
@@ -119,6 +135,7 @@ class MailingService:
         self.is_paused = False
         self._stop_requested = False
         self._pause_event.set()
+        self._stop_event.clear()
         self.current_mailing_id = str(uuid.uuid4())[:8]
         self.sent_count = 0
         self.error_count = 0
@@ -143,6 +160,7 @@ class MailingService:
                 raise ValueError("Нет активных и авторизованных аккаунтов для рассылки!")
 
             self.total_targets = len(groups)
+            self.current_target = "Подготовка к рассылке..."
             await self._notify_ui(force=True)
 
             # Загружаем настройки задержек и лимитов
@@ -155,7 +173,7 @@ class MailingService:
             media_files = json.loads(template.media_files) if template.media_files else []
             account_index = 0
 
-            for group in groups:
+            for idx, group in enumerate(groups, start=1):
                 # Проверка запроса на остановку
                 if self._stop_requested:
                     logger.info("Рассылка остановлена пользователем.")
@@ -166,8 +184,8 @@ class MailingService:
                 if self._stop_requested:
                     break
 
-                self.current_target = f"{group.title} ({group.target})"
-                await self._notify_ui()
+                self.current_target = f"[{idx}/{self.total_targets}] Отправка: {group.title} ({group.target})"
+                await self._notify_ui(force=True)
 
                 # Поиск подходящего аккаунта с учетом дневного лимита и статуса
                 account: Optional[Account] = None
@@ -190,6 +208,7 @@ class MailingService:
 
                 if not account:
                     logger.warning("Все аккаунты исчерпали дневной лимит или заблокированы.")
+                    self.current_target = "⚠️ Все аккаунты исчерпали суточный лимит"
                     break
 
                 self.current_account_phone = account.phone
@@ -264,22 +283,31 @@ class MailingService:
                     )
                     self.error_count += 1
 
-                await self._notify_ui()
+                # Проверяем, есть ли еще группы для отправки
+                if idx < len(groups) and not self._stop_requested:
+                    # Антибан-задержка между отправками
+                    sleep_duration = random.uniform(min_delay, max_delay)
+                    if len(active_accounts) > 1:
+                        sleep_duration += account_delay
 
-                # Антибан-задержка между отправками
-                sleep_duration = random.uniform(min_delay, max_delay)
-                # Если доступно несколько аккаунтов, добавляем паузу переключения
-                if len(active_accounts) > 1:
-                    sleep_duration += account_delay
+                    next_group = groups[idx]
+                    self.current_target = f"⏳ Пауза {int(sleep_duration)}с (след.: {next_group.title})"
+                    await self._notify_ui(force=True)
 
-                await asyncio.sleep(sleep_duration)
+                    # Прерываемая пауза (мгновенно останавливается при нажатии кнопки Стоп)
+                    slept = await self._interruptible_sleep(sleep_duration)
+                    if not slept or self._stop_requested:
+                        break
 
         finally:
             self.is_running = False
             self.is_paused = False
-            self._stop_requested = False
-            self.current_target = ""
-            self.current_account_phone = ""
+            self._stop_event.set()
+            if self._stop_requested:
+                self.current_target = "⏹ Рассылка остановлена пользователем"
+            else:
+                self.current_target = "🏁 Рассылка полностью завершена"
+            self.current_account_phone = "—"
             await self._notify_ui(force=True)
 
     def schedule_mailing(
