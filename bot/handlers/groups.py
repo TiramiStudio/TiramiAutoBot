@@ -279,9 +279,7 @@ async def cb_groups_clear_ask(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "grp:clear_confirm")
 async def cb_groups_clear_confirm(callback: CallbackQuery) -> None:
     """Полная очистка групп."""
-    async with await db.get_connection() as conn:
-        await conn.execute("DELETE FROM groups_list")
-        await conn.commit()
+    await db.clear_all_groups()
     await callback.answer("Все группы успешно удалены!", show_alert=True)
     await cb_groups_menu(callback, None)
 

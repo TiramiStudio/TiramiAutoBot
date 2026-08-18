@@ -4,8 +4,9 @@
 """
 
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional, Any, AsyncGenerator
 import aiosqlite
 
 from bot.config import DATABASE_PATH
@@ -18,15 +19,16 @@ class Database:
     def __init__(self, db_path: str = str(DATABASE_PATH)):
         self.db_path = db_path
 
-    async def get_connection(self) -> aiosqlite.Connection:
-        """Возвращает асинхронное соединение с базой данных с поддержкой строк-словарей."""
-        conn = await aiosqlite.connect(self.db_path)
-        conn.row_factory = aiosqlite.Row
-        return conn
+    @asynccontextmanager
+    async def get_connection(self) -> AsyncGenerator[aiosqlite.Connection, None]:
+        """Контекстный менеджер безопасного асинхронного соединения с базой данных."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            yield conn
 
     async def init_db(self) -> None:
         """Инициализация таблиц базы данных и установка начальных настроек."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             # Таблица аккаунтов
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS accounts (
@@ -130,7 +132,7 @@ class Database:
     ) -> int:
         """Добавляет новый аккаунт или обновляет существующий."""
         now = datetime.now().isoformat()
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("""
                 INSERT INTO accounts (phone, session_name, api_id, api_hash, first_name, username, created_at, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
@@ -148,21 +150,21 @@ class Database:
 
     async def get_accounts(self) -> list[Account]:
         """Получает список всех аккаунтов."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM accounts ORDER BY id ASC")
             rows = await cursor.fetchall()
             return [Account(**dict(row)) for row in rows]
 
     async def get_account_by_id(self, account_id: int) -> Optional[Account]:
         """Получает аккаунт по ID."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,))
             row = await cursor.fetchone()
             return Account(**dict(row)) if row else None
 
     async def get_account_by_phone(self, phone: str) -> Optional[Account]:
         """Получает аккаунт по номеру телефона."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM accounts WHERE phone = ?", (phone,))
             row = await cursor.fetchone()
             return Account(**dict(row)) if row else None
@@ -174,7 +176,7 @@ class Database:
         flood_until: Optional[str] = None
     ) -> None:
         """Обновляет статус аккаунта и время истечения флуд-бана при наличии."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute(
                 "UPDATE accounts SET status = ?, flood_until = ? WHERE phone = ?",
                 (status, flood_until, phone)
@@ -188,7 +190,7 @@ class Database:
         username: Optional[str]
     ) -> None:
         """Обновляет имя и username аккаунта."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute(
                 "UPDATE accounts SET first_name = ?, username = ? WHERE phone = ?",
                 (first_name, username, phone)
@@ -198,7 +200,7 @@ class Database:
     async def update_account_last_used(self, phone: str) -> None:
         """Обновляет дату последнего использования аккаунта."""
         now = datetime.now().isoformat()
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute(
                 "UPDATE accounts SET last_used_at = ? WHERE phone = ?",
                 (now, phone)
@@ -207,7 +209,7 @@ class Database:
 
     async def delete_account(self, account_id: int) -> Optional[str]:
         """Удаляет аккаунт и возвращает имя сессии для удаления файла."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT session_name FROM accounts WHERE id = ?", (account_id,))
             row = await cursor.fetchone()
             if not row:
@@ -223,7 +225,7 @@ class Database:
 
     async def add_category(self, name: str) -> int:
         """Создает новую категорию."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute(
                 "INSERT INTO categories (name) VALUES (?) ON CONFLICT(name) DO NOTHING",
                 (name.strip(),)
@@ -233,21 +235,21 @@ class Database:
 
     async def get_categories(self) -> list[Category]:
         """Возвращает все категории."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM categories ORDER BY name ASC")
             rows = await cursor.fetchall()
             return [Category(**dict(row)) for row in rows]
 
     async def get_category_by_id(self, category_id: int) -> Optional[Category]:
         """Получает категорию по ID."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
             row = await cursor.fetchone()
             return Category(**dict(row)) if row else None
 
     async def delete_category(self, category_id: int) -> None:
         """Удаляет категорию (в группах category_id станет NULL)."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute("DELETE FROM categories WHERE id = ?", (category_id,))
             await db.commit()
 
@@ -263,7 +265,7 @@ class Database:
     ) -> bool:
         """Добавляет новую группу. Возвращает True если добавлена, False если уже есть."""
         now = datetime.now().isoformat()
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             try:
                 await db.execute("""
                     INSERT INTO groups_list (target, title, category_id, status, created_at)
@@ -286,7 +288,7 @@ class Database:
         """Массовое добавление групп. Возвращает количество успешно добавленных/обновленных групп."""
         now = datetime.now().isoformat()
         count = 0
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             for g in groups:
                 target = g.get("target", "").strip()
                 title = g.get("title", target).strip()
@@ -320,21 +322,21 @@ class Database:
             params.append(status)
         query += " ORDER BY id DESC"
 
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
             return [Group(**dict(row)) for row in rows]
 
     async def get_group_by_id(self, group_id: int) -> Optional[Group]:
         """Получает группу по ID."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM groups_list WHERE id = ?", (group_id,))
             row = await cursor.fetchone()
             return Group(**dict(row)) if row else None
 
     async def update_group_status(self, target: str, status: str) -> None:
         """Обновляет статус группы (active, restricted, not_found, banned)."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute(
                 "UPDATE groups_list SET status = ? WHERE target = ?",
                 (status, target)
@@ -343,8 +345,14 @@ class Database:
 
     async def delete_group(self, group_id: int) -> None:
         """Удаляет группу по ID."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute("DELETE FROM groups_list WHERE id = ?", (group_id,))
+            await db.commit()
+
+    async def clear_all_groups(self) -> None:
+        """Удаляет все группы из базы."""
+        async with self.get_connection() as db:
+            await db.execute("DELETE FROM groups_list")
             await db.commit()
 
     async def count_groups(self, category_id: Optional[int] = None) -> int:
@@ -354,7 +362,7 @@ class Database:
         if category_id is not None:
             query += " AND category_id = ?"
             params.append(category_id)
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute(query, params)
             row = await cursor.fetchone()
             return row["cnt"] if row else 0
@@ -373,7 +381,7 @@ class Database:
         """Создает новый шаблон сообщения."""
         now = datetime.now().isoformat()
         media_json = json.dumps(media_files or [])
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("""
                 INSERT INTO templates (name, text, media_type, media_files, created_at)
                 VALUES (?, ?, ?, ?, ?)
@@ -387,21 +395,21 @@ class Database:
 
     async def get_templates(self) -> list[Template]:
         """Возвращает все сохраненные шаблоны."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM templates ORDER BY id DESC")
             rows = await cursor.fetchall()
             return [Template(**dict(row)) for row in rows]
 
     async def get_template_by_id(self, template_id: int) -> Optional[Template]:
         """Получает шаблон по ID."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT * FROM templates WHERE id = ?", (template_id,))
             row = await cursor.fetchone()
             return Template(**dict(row)) if row else None
 
     async def delete_template(self, template_id: int) -> None:
         """Удаляет шаблон."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute("DELETE FROM templates WHERE id = ?", (template_id,))
             await db.commit()
 
@@ -411,14 +419,14 @@ class Database:
 
     async def get_setting(self, key: str, default: str = "") -> str:
         """Получает значение настройки по ключу."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
             row = await cursor.fetchone()
             return row["value"] if row else default
 
     async def set_setting(self, key: str, value: str) -> None:
         """Сохраняет значение настройки."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute("""
                 INSERT INTO settings (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value
@@ -427,7 +435,7 @@ class Database:
 
     async def get_all_settings(self) -> dict[str, str]:
         """Возвращает словарь всех настроек."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("SELECT key, value FROM settings")
             rows = await cursor.fetchall()
             return {row["key"]: row["value"] for row in rows}
@@ -447,7 +455,7 @@ class Database:
     ) -> None:
         """Добавляет запись в журнал рассылки."""
         now = datetime.now().isoformat()
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute("""
                 INSERT INTO mailing_logs (mailing_id, account_phone, group_target, group_title, status, error_message, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -456,7 +464,7 @@ class Database:
 
     async def get_logs(self, limit: int = 200) -> list[MailingLog]:
         """Получает последние записи журнала."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute(
                 "SELECT * FROM mailing_logs ORDER BY id DESC LIMIT ?",
                 (limit,)
@@ -467,7 +475,7 @@ class Database:
     async def get_today_sent_count_for_account(self, phone: str) -> int:
         """Подсчитывает количество успешных отправок с аккаунта за текущие сутки."""
         today_start = datetime.now().strftime("%Y-%m-%d") + "T00:00:00"
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             cursor = await db.execute("""
                 SELECT COUNT(*) as cnt FROM mailing_logs
                 WHERE account_phone = ? AND status = 'success' AND timestamp >= ?
@@ -477,7 +485,7 @@ class Database:
 
     async def get_stats_summary(self) -> dict[str, int]:
         """Возвращает сводную статистику по боту."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             acc_cur = await db.execute("SELECT COUNT(*) as cnt FROM accounts")
             total_accounts = (await acc_cur.fetchone())["cnt"]
 
@@ -515,7 +523,7 @@ class Database:
 
     async def clear_logs(self) -> None:
         """Очищает историю журнала рассылки."""
-        async with await self.get_connection() as db:
+        async with self.get_connection() as db:
             await db.execute("DELETE FROM mailing_logs")
             await db.commit()
 
