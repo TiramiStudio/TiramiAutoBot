@@ -82,23 +82,20 @@ logger = logging.getLogger("bot")
 render_web_runner: Optional[web.AppRunner] = None
 
 
-async def start_render_health_server() -> Optional[web.AppRunner]:
+async def start_render_health_server() -> web.AppRunner:
     """
     Запуск легковесного HTTP-сервера для успешного прохождения
-    проверки работоспособности (Health Check) сервиса на Render.
+    проверки открытых портов (Port Binding / Health Check) на Render.
     """
-    port_str = os.getenv("PORT")
-    if not port_str:
-        return None
-
+    port_str = os.getenv("PORT", "10000")
     try:
         port = int(port_str)
     except ValueError:
-        return None
+        port = 10000
 
     async def handle_ping(request: web.Request) -> web.Response:
         return web.Response(
-            text="TiramiAutoBot is running and healthy!",
+            text="TiramiAutoBot is running and healthy!\nStudio: TiramiStudio (t.me/tiramistudio)",
             content_type="text/plain"
         )
 
@@ -111,22 +108,17 @@ async def start_render_health_server() -> Optional[web.AppRunner]:
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info(f"Render Health Check сервер успешно запущен на порту {port}")
+    logger.info(f"==> Health Check HTTP сервер успешно запущен и слушает 0.0.0.0:{port}")
     return runner
 
 
 async def on_startup(bot: Bot) -> None:
     """Действия при запуске бота."""
-    global render_web_runner
-
     logger.info("Инициализация базы данных SQLite...")
     await db.init_db()
     
     logger.info("Запуск планировщика задач APScheduler...")
     mailing_srv.start_scheduler()
-
-    # Если бот развернут как Web Service на Render (передан PORT)
-    render_web_runner = await start_render_health_server()
     
     bot_user = await bot.get_me()
     logger.info(f"Бот @{bot_user.username} успешно запущен и готов к работе!")
@@ -149,14 +141,24 @@ async def on_shutdown() -> None:
 
 async def main() -> None:
     """Главная точка входа в приложение."""
-    # Валидация конфигурации
+    global render_web_runner
+
+    # 1. СРАЗУ запускаем HTTP-сервер, чтобы Render мгновенно обнаружил открытый порт
+    try:
+        render_web_runner = await start_render_health_server()
+    except Exception as e:
+        logger.warning(f"Не удалось запустить HTTP-сервер: {e}")
+
+    # 2. Валидация конфигурации
     try:
         validate_config()
     except ValueError as e:
-        logger.critical(f"Ошибка конфигурации:\n{e}")
-        return
+        logger.critical(f"Ошибка конфигурации переменнных окружения:\n{e}")
+        # Оставляем процесс работать, чтобы веб-сервер держал порт и в логах Render была видна ошибка
+        while True:
+            await asyncio.sleep(3600)
 
-    # Инициализация бота и диспетчера
+    # 3. Инициализация бота и диспетчера
     bot = Bot(
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
