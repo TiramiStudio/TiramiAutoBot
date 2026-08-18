@@ -17,7 +17,8 @@ from bot.keyboards.inline import (
     select_template_for_mail_kb,
     select_category_for_mail_kb,
     custom_back_kb,
-    confirm_action_kb
+    confirm_action_kb,
+    confirm_launch_kb
 )
 from bot.services.mailing_service import mailing_srv
 from bot.utils.helpers import IsAdminFilter
@@ -40,9 +41,12 @@ def build_status_text(progress: dict) -> str:
     else:
         state_icon = "⏹ <b>ОСТАНОВЛЕНА / ЗАВЕРШЕНА</b>"
 
+    mode_icon = f"🔄 <b>Цикличный (Круг #{progress.get('cycle_count', 1)})</b>" if progress.get("is_cyclic") else "⚡️ <b>Однократный</b>"
+
     return (
         f"📊 <b>Панель управления рассылкой</b>\n\n"
         f"Статус: {state_icon}\n"
+        f"Режим: {mode_icon}\n"
         f"ID рассылки: <code>{progress['mailing_id']}</code>\n"
         f"Прогресс: <b>{progress['sent'] + progress['errors']} / {progress['total']}</b>\n"
         f"{progress['progress_bar']}\n\n"
@@ -198,6 +202,7 @@ async def cb_mail_set_category(callback: CallbackQuery, state: FSMContext) -> No
 
     # Мгновенный запуск: показываем экран подтверждения
     await state.set_state(MailingStates.confirm_start)
+    await state.update_data(is_cyclic=False)
     cat_name = "Все группы"
     if cat_id:
         c = await db.get_category_by_id(cat_id)
@@ -208,14 +213,54 @@ async def cb_mail_set_category(callback: CallbackQuery, state: FSMContext) -> No
         "🚀 <b>Подтверждение запуска авторассылки</b>\n\n"
         f"• Шаблон: <b>«{template.name}»</b>\n"
         f"• Целевая аудитория: <b>{cat_name}</b> (Групп: <b>{len(groups)}</b>)\n"
-        f"• Доступных аккаунтов: <b>{len(active_accs)}</b>\n\n"
-        "⚡️ Рассылка будет выполняться в фоне с учетом рандомизации задержек и спинтакса.\n\n"
+        f"• Доступных аккаунтов: <b>{len(active_accs)}</b>\n"
+        "• Режим рассылки: ⚡️ <b>Однократный (1 круг по группам)</b>\n\n"
+        "⚡️ Рассылка выполняется в фоне с учетом индивидуальных КД и рандомизации задержек.\n\n"
         "<b>Запустить рассылку прямо сейчас?</b>"
     )
     await callback.message.edit_text(
         text,
         parse_mode="html",
-        reply_markup=confirm_action_kb("mail:confirm_launch", "menu:mailing")
+        reply_markup=confirm_launch_kb(is_cyclic=False)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mail:toggle_cyclic")
+async def cb_mail_toggle_cyclic(callback: CallbackQuery, state: FSMContext) -> None:
+    """Переключение режима: Однократный / Цикличный."""
+    data = await state.get_data()
+    is_cyclic = not data.get("is_cyclic", False)
+    await state.update_data(is_cyclic=is_cyclic)
+
+    template_id = data.get("template_id")
+    cat_id = data.get("category_id")
+    template = await db.get_template_by_id(template_id)
+    groups = await db.get_groups(category_id=cat_id, status="active")
+    accounts = await db.get_accounts()
+    active_accs = [a for a in accounts if a.status == "active"]
+
+    cat_name = "Все группы"
+    if cat_id:
+        c = await db.get_category_by_id(cat_id)
+        if c:
+            cat_name = c.name
+
+    mode_desc = "🔄 <b>Цикличный (по кругу с паузами между циклами)</b>" if is_cyclic else "⚡️ <b>Однократный (1 круг по группам)</b>"
+
+    text = (
+        "🚀 <b>Подтверждение запуска авторассылки</b>\n\n"
+        f"• Шаблон: <b>«{template.name}»</b>\n"
+        f"• Целевая аудитория: <b>{cat_name}</b> (Групп: <b>{len(groups)}</b>)\n"
+        f"• Доступных аккаунтов: <b>{len(active_accs)}</b>\n"
+        f"• Режим рассылки: {mode_desc}\n\n"
+        "⚡️ Рассылка выполняется в фоне с учетом индивидуальных КД и рандомизации задержек.\n\n"
+        "<b>Запустить рассылку прямо сейчас?</b>"
+    )
+    await callback.message.edit_text(
+        text,
+        parse_mode="html",
+        reply_markup=confirm_launch_kb(is_cyclic=is_cyclic)
     )
     await callback.answer()
 
@@ -227,6 +272,7 @@ async def msg_mail_save_schedule(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     template_id = data.get("template_id")
     category_id = data.get("category_id")
+    is_cyclic = data.get("is_cyclic", False)
 
     scheduled_dt: Optional[datetime] = None
 
@@ -258,7 +304,8 @@ async def msg_mail_save_schedule(message: Message, state: FSMContext) -> None:
     job_id = mailing_srv.schedule_mailing(
         run_date=scheduled_dt,
         template_id=template_id,
-        category_id=category_id
+        category_id=category_id,
+        is_cyclic=is_cyclic
     )
 
     await state.clear()
@@ -277,6 +324,7 @@ async def cb_mail_confirm_launch(callback: CallbackQuery, state: FSMContext, bot
     data = await state.get_data()
     template_id = data.get("template_id")
     category_id = data.get("category_id")
+    is_cyclic = data.get("is_cyclic", False)
     await state.clear()
 
     active_monitor_msg["chat_id"] = callback.message.chat.id
@@ -290,6 +338,7 @@ async def cb_mail_confirm_launch(callback: CallbackQuery, state: FSMContext, bot
         mailing_srv.run_mailing(
             template_id=template_id,
             category_id=category_id,
+            is_cyclic=is_cyclic,
             ui_callback=ui_callback
         )
     )

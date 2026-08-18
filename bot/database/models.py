@@ -38,6 +38,8 @@ class Group:
     title: str = ""
     category_id: Optional[int] = None
     status: str = "active"  # active, restricted, not_found, banned
+    cooldown_seconds: int = 0  # 0 = использовать глобальные настройки задержки
+    last_sent_at: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 

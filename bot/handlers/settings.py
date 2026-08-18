@@ -106,6 +106,34 @@ async def msg_save_account_delay(message: Message, state: FSMContext) -> None:
     await message.answer(f"✅ Пауза ротации аккаунтов установлена на <b>{val}с</b>.", parse_mode="html", reply_markup=custom_back_kb("menu:settings", "⚙️ В настройки"))
 
 
+@router.callback_query(F.data == "set:cycle_delay")
+async def cb_set_cycle_delay(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос паузы между кругами циклической рассылки."""
+    await state.set_state(SettingStates.enter_cycle_delay)
+    text = (
+        "🔁 <b>Введите паузу между полными кругами в циклическом режиме (в секундах):</b>\n\n"
+        "Например:\n"
+        "• <code>300</code> — 5 минут\n"
+        "• <code>900</code> — 15 минут\n"
+        "• <code>3600</code> — 1 час"
+    )
+    await callback.message.edit_text(text, parse_mode="html", reply_markup=custom_back_kb("menu:settings", "❌ Отмена"))
+    await callback.answer()
+
+
+@router.message(SettingStates.enter_cycle_delay)
+async def msg_save_cycle_delay(message: Message, state: FSMContext) -> None:
+    """Сохранение паузы между кругами циклической рассылки."""
+    val = (message.text or "").strip()
+    if not val.isdigit() or int(val) < 0:
+        await message.answer("❌ Введите целое неотрицательное число секунд:")
+        return
+
+    await db.set_setting("cycle_delay", val)
+    await state.clear()
+    await message.answer(f"✅ Пауза между кругами установлена на <b>{val}с</b>.", parse_mode="html", reply_markup=custom_back_kb("menu:settings", "⚙️ В настройки"))
+
+
 @router.callback_query(F.data == "set:daily_limit")
 async def cb_set_daily_limit(callback: CallbackQuery, state: FSMContext) -> None:
     """Запрос суточного лимита отправок на один аккаунт."""

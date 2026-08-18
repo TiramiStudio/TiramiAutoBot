@@ -158,9 +158,51 @@ def group_detail_kb(group_id: int) -> InlineKeyboardMarkup:
     """Карточка конкретной группы."""
     builder = InlineKeyboardBuilder()
     builder.row(
+        InlineKeyboardButton(text="⏱ Настроить КД группы", callback_data=f"grp:set_cd:{group_id}")
+    )
+    builder.row(
         InlineKeyboardButton(text="🗑 Удалить группу", callback_data=f"grp:delete:{group_id}")
     )
     builder.row(InlineKeyboardButton(text="🔙 К списку групп", callback_data="grp:list:0"))
+    return builder.as_markup()
+
+
+def group_cooldown_presets_kb(group_id: int) -> InlineKeyboardMarkup:
+    """Пресеты выбора индивидуального КД для группы."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="⚙️ По умолчанию (из настроек)", callback_data=f"grp:save_cd:{group_id}:0")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⏱ 1 мин (60с)", callback_data=f"grp:save_cd:{group_id}:60"),
+        InlineKeyboardButton(text="⏱ 5 мин (300с)", callback_data=f"grp:save_cd:{group_id}:300")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⏱ 10 мин (600с)", callback_data=f"grp:save_cd:{group_id}:600"),
+        InlineKeyboardButton(text="⏱ 30 мин (1800с)", callback_data=f"grp:save_cd:{group_id}:1800")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⏱ 1 час (3600с)", callback_data=f"grp:save_cd:{group_id}:3600"),
+        InlineKeyboardButton(text="⏱ 2 часа (7200с)", callback_data=f"grp:save_cd:{group_id}:7200")
+    )
+    builder.row(
+        InlineKeyboardButton(text="✏️ Ввести другое значение (сек)", callback_data=f"grp:custom_cd:{group_id}")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Назад к группе", callback_data=f"grp:view:{group_id}"))
+    return builder.as_markup()
+
+
+def confirm_launch_kb(is_cyclic: bool) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения запуска рассылки с переключателем цикличности."""
+    builder = InlineKeyboardBuilder()
+    mode_text = "🔄 Режим: Цикличный (по кругу)" if is_cyclic else "🔁 Режим: Однократный"
+    builder.row(
+        InlineKeyboardButton(text=mode_text, callback_data="mail:toggle_cyclic")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🚀 Запустить", callback_data="mail:confirm_launch"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:mailing")
+    )
     return builder.as_markup()
 
 
@@ -279,6 +321,7 @@ def settings_menu_kb(settings: dict[str, str]) -> InlineKeyboardMarkup:
     min_d = settings.get("min_delay", "30")
     max_d = settings.get("max_delay", "90")
     acc_d = settings.get("account_delay", "15")
+    cycle_d = settings.get("cycle_delay", "300")
     limit = settings.get("daily_limit_per_account", "50")
 
     builder = InlineKeyboardBuilder()
@@ -288,6 +331,9 @@ def settings_menu_kb(settings: dict[str, str]) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text=f"🔄 Пауза аккаунтов: {acc_d}с", callback_data="set:account_delay"),
+        InlineKeyboardButton(text=f"🔁 Пауза кругов: {cycle_d}с", callback_data="set:cycle_delay")
+    )
+    builder.row(
         InlineKeyboardButton(text=f"📊 Лимит на аккаунт/сут: {limit}", callback_data="set:daily_limit")
     )
     builder.row(InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu:main"))

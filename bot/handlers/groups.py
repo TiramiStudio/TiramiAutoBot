@@ -14,6 +14,7 @@ from bot.keyboards.inline import (
     groups_menu_kb,
     groups_pagination_kb,
     group_detail_kb,
+    group_cooldown_presets_kb,
     categories_menu_kb,
     select_category_for_groups_kb,
     custom_back_kb,
@@ -243,16 +244,110 @@ async def cb_group_view(callback: CallbackQuery) -> None:
 
     status_str = "🟢 Активна" if group.status == "active" else f"🔴 {group.status}"
 
+    if group.cooldown_seconds > 0:
+        mins = group.cooldown_seconds // 60
+        secs = group.cooldown_seconds % 60
+        cd_str = f"{mins} мин {secs}с" if mins > 0 else f"{secs} сек"
+        cd_display = f"⏱ <b>{cd_str} ({group.cooldown_seconds}с)</b>"
+    else:
+        cd_display = "⚙️ <i>По умолчанию (из настроек)</i>"
+
+    last_sent_str = group.last_sent_at[:19].replace("T", " ") if group.last_sent_at else "еще не отправлялось"
+
     text = (
         f"👥 <b>Информация о группе:</b>\n\n"
         f"• Название: <b>{group.title}</b>\n"
         f"• Цель: <code>{group.target}</code>\n"
         f"• Категория: <b>{cat_name}</b>\n"
         f"• Статус: <b>{status_str}</b>\n"
+        f"• Индивидуальный КД: {cd_display}\n"
+        f"• Посл. отправка: <code>{last_sent_str}</code>\n"
         f"• Добавлена: <code>{group.created_at[:19]}</code>"
     )
     await callback.message.edit_text(text, parse_mode="html", reply_markup=group_detail_kb(group.id))
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("grp:set_cd:"))
+async def cb_group_set_cd(callback: CallbackQuery, state: FSMContext) -> None:
+    """Выбор индивидуального КД для группы."""
+    await state.clear()
+    group_id = int(callback.data.split(":")[2])
+    group = await db.get_group_by_id(group_id)
+    if not group:
+        await callback.answer("Группа не найдена!", show_alert=True)
+        return
+
+    text = (
+        f"⏱ <b>Настройка индивидуального КД для группы «{group.title}»</b>\n\n"
+        "Задайте минимальный интервал между отправками сообщений именно в эту группу.\n"
+        "<i>(Если указано 'По умолчанию', используются общие задержки из Настроек)</i>\n\n"
+        "Выберите готовый пресет или введите вручную:"
+    )
+    await callback.message.edit_text(text, parse_mode="html", reply_markup=group_cooldown_presets_kb(group_id))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("grp:save_cd:"))
+async def cb_group_save_cd_preset(callback: CallbackQuery) -> None:
+    """Сохранение выбранного пресета КД группы."""
+    parts = callback.data.split(":")
+    group_id = int(parts[2])
+    seconds = int(parts[3])
+
+    await db.update_group_cooldown(group_id, seconds)
+    if seconds == 0:
+        await callback.answer("Установлен КД по умолчанию!", show_alert=True)
+    else:
+        await callback.answer(f"Индивидуальный КД {seconds}с успешно установлен!", show_alert=True)
+
+    await cb_group_view(callback)
+
+
+@router.callback_query(F.data.startswith("grp:custom_cd:"))
+async def cb_group_custom_cd(callback: CallbackQuery, state: FSMContext) -> None:
+    """Запрос ручного ввода КД в секундах."""
+    group_id = int(callback.data.split(":")[2])
+    await state.update_data(cd_group_id=group_id)
+    await state.set_state(GroupStates.enter_cooldown)
+
+    text = (
+        "⏱ <b>Введите индивидуальный КД в секундах:</b>\n\n"
+        "Например:\n"
+        "• <code>120</code> — 2 минуты\n"
+        "• <code>900</code> — 15 минут\n"
+        "• <code>3600</code> — 1 час\n"
+        "• <code>0</code> — сбросить на КД по умолчанию"
+    )
+    await callback.message.edit_text(text, parse_mode="html", reply_markup=custom_back_kb(f"grp:set_cd:{group_id}", "❌ Отмена"))
+    await callback.answer()
+
+
+@router.message(GroupStates.enter_cooldown)
+async def msg_group_save_custom_cd(message: Message, state: FSMContext) -> None:
+    """Сохранение введенного пользователем КД."""
+    raw_text = (message.text or "").strip()
+    data = await state.get_data()
+    group_id = data.get("cd_group_id")
+
+    if not raw_text.isdigit():
+        await message.answer(
+            "❌ <b>Пожалуйста, введите целое положительное число секунд (например: <code>300</code>):</b>",
+            parse_mode="html",
+            reply_markup=custom_back_kb("menu:groups", "❌ Отмена")
+        )
+        return
+
+    seconds = int(raw_text)
+    if group_id:
+        await db.update_group_cooldown(group_id, seconds)
+    await state.clear()
+
+    await message.answer(
+        f"✅ Индивидуальный КД <b>{seconds} сек</b> успешно установлен для группы!",
+        parse_mode="html",
+        reply_markup=custom_back_kb(f"grp:view:{group_id}", "👥 К карточке группы")
+    )
 
 
 @router.callback_query(F.data.startswith("grp:delete:"))

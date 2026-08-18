@@ -62,10 +62,20 @@ class Database:
                     title TEXT NOT NULL,
                     category_id INTEGER,
                     status TEXT NOT NULL DEFAULT 'active',
+                    cooldown_seconds INTEGER DEFAULT 0,
+                    last_sent_at TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
                 )
             """)
+
+            # Автоматическая миграция для существующих БД: добавляем колонки cooldown_seconds и last_sent_at
+            cursor = await db.execute("PRAGMA table_info(groups_list)")
+            columns = [row["name"] for row in await cursor.fetchall()]
+            if "cooldown_seconds" not in columns:
+                await db.execute("ALTER TABLE groups_list ADD COLUMN cooldown_seconds INTEGER DEFAULT 0")
+            if "last_sent_at" not in columns:
+                await db.execute("ALTER TABLE groups_list ADD COLUMN last_sent_at TEXT")
 
             # Таблица шаблонов сообщений
             await db.execute("""
@@ -106,6 +116,7 @@ class Database:
                 "min_delay": "30",
                 "max_delay": "90",
                 "account_delay": "15",
+                "cycle_delay": "300",
                 "daily_limit_per_account": "50",
                 "rotation_mode": "round_robin"
             }
@@ -340,6 +351,25 @@ class Database:
             await db.execute(
                 "UPDATE groups_list SET status = ? WHERE target = ?",
                 (status, target)
+            )
+            await db.commit()
+
+    async def update_group_cooldown(self, group_id: int, cooldown_seconds: int) -> None:
+        """Обновляет индивидуальный КД (задержку) для конкретной группы."""
+        async with self.get_connection() as db:
+            await db.execute(
+                "UPDATE groups_list SET cooldown_seconds = ? WHERE id = ?",
+                (max(0, cooldown_seconds), group_id)
+            )
+            await db.commit()
+
+    async def update_group_last_sent(self, group_id: int, timestamp: Optional[str] = None) -> None:
+        """Обновляет время последней отправки сообщения в группу."""
+        ts = timestamp or datetime.now().isoformat()
+        async with self.get_connection() as db:
+            await db.execute(
+                "UPDATE groups_list SET last_sent_at = ? WHERE id = ?",
+                (ts, group_id)
             )
             await db.commit()
 

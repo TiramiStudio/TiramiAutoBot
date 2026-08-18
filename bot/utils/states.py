@@ -18,6 +18,7 @@ class GroupStates(StatesGroup):
     enter_targets = State()
     enter_category_name = State()
     select_category_for_groups = State()
+    enter_cooldown = State()
 
 
 class TemplateStates(StatesGroup):
@@ -39,4 +40,5 @@ class SettingStates(StatesGroup):
     enter_min_delay = State()
     enter_max_delay = State()
     enter_account_delay = State()
+    enter_cycle_delay = State()
     enter_daily_limit = State()
